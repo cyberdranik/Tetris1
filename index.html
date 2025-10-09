@@ -1,0 +1,270 @@
+<html>
+<head></head>
+<body onload="loadGame()">
+<script>
+    var ctx;
+    var mainFigure;
+    var mainField;
+    var gameState;
+    var pauseCount = 10;
+	var speedUpCount = 100;
+	var speedUpTicks = speedUpCount;
+    var pauseTicks = pauseCount;
+    var score;
+
+    var tmpFigures = [
+        0,0,1,0,0,
+        0,0,1,0,0,
+        0,0,1,0,0,
+        0,0,1,0,0,
+        0,0,1,0,0,
+
+        0,0,0,0,0,
+        0,0,1,1,0,
+        0,0,1,0,0,
+        0,0,1,0,0,
+        0,0,0,0,0,
+        
+        0,0,0,0,0,
+        0,1,1,0,0,
+        0,0,1,0,0,
+        0,0,1,0,0,
+        0,0,0,0,0,
+
+        0,0,0,0,0,
+        0,0,1,1,0,
+        0,1,1,0,0,
+        0,0,0,0,0,
+        0,0,0,0,0,
+
+        0,0,0,0,0,
+        0,1,1,0,0,
+        0,0,1,1,0,
+        0,0,0,0,0,
+        0,0,0,0,0,
+
+        0,0,0,0,0,
+        0,0,1,0,0,
+        0,1,1,1,0,
+        0,0,0,0,0,
+        0,0,0,0,0,
+    ];
+
+    class Field {
+        constructor(w, h) {
+            this.w = w;
+            this.h = h;
+            this.b = new Array(w*h).fill(0);
+        }
+        collision(f) {
+            for (var i = 0; i < f.s; i++)
+                for (var j = 0; j < f.s; j++) {
+                    var fx = f.x + j;
+                    var fy = f.y + i;
+                    if (f.b[i*f.s+j] != 0) {
+                        if (fx < 0 || fx >= this.w || fy < 0 || fy >= this.h)
+                            return 1;
+                        if (this.b[fy*this.w+fx] != 0)
+                            return 1;
+                    }
+                }
+            return 0;
+        }
+        plantFigure(f) {
+            for (var i = 0; i < f.s; i++)
+                for (var j = 0; j < f.s; j++)
+                    if (f.b[i*f.s+j] != 0) {
+                        var fx = f.x+j;
+                        var fy = f.y+i;
+                        this.b[fy*this.w+fx] = f.b[i*f.s+j];
+                    }
+        }
+        lineIsFilled(num) {
+            for (var i = 0; i < this.w; i++)
+                if (this.b[num*this.w+i] == 0)
+                    return 0;
+            return 1;
+        }
+        shiftLines(num) {
+            for (var i = num; i > 0; i--)
+                for (var j = 0; j < this.w; j++)
+                   this.b[i*this.w+j] = this.b[(i-1)*this.w+j];
+        }
+        eraseLines() {
+            var count = 0;
+            for (var i = this.h-1; i > 0; i--) {
+                while (this.lineIsFilled(i)) {
+                    this.shiftLines(i);
+                    count++;
+                }
+            }
+            return count;
+        }
+        draw() {
+            for (var i = 0; i < this.h; i++)
+                for (var j = 0; j < this.w; j++)
+                    drawBlock(i, j, this.b[i*this.w+j] ? "#888888" : "#000000");
+        }
+    }
+
+    class Figure {
+        constructor(s, x, y) {
+            this.s = s;
+            this.x = x;
+            this.y = y;
+			this.b = [];
+			this.t = [];
+			this.r = [];
+            this.b = new Array(s*s).fill(0);
+			for(var i=0; i<s*s; i++) {
+				this.b.push(0);
+				this.t.push(0);
+				this.r.push(0);
+			};
+        }
+        moveDown() { this.y++; }
+        moveUp() { this.y--; }
+        moveRight() { this.x++; }
+        moveLeft() { this.x--; }
+        dropNew(f) {
+            this.y = 0;
+            this.x = Math.floor(f.w/2 - this.s/2);
+            var f_size = this.s*this.s;
+            var f_count = Math.floor(tmpFigures.length/f_size);
+            var idx = Math.floor(Math.random() * f_count);
+            var point = idx * f_size;
+            for (var i = 0; i < f_size; i++)
+                this.b[i] = tmpFigures[point+i];
+        }
+        draw() {
+            for (var i = 0; i < this.s; i++)
+                for (var j = 0; j < this.s; j++)
+                    if (this.b[i*this.s+j] != 0)
+                        drawBlock(this.y+i, this.x+j, "#FF0000");
+        }
+		
+		rot() {
+			for (var i = 0; i < this.s * this.s; i++)
+				this.t[i] = this.b[i];
+
+			for (var i = 0; i < this.s; i++) {
+				for (var j = 0; j < this.s; j++) {
+					this.r[i * this.s + j] = this.b[(this.s - 1 - j) * this.s + i];
+				}
+			}
+
+			for (var i = 0; i < this.s * this.s; i++)
+				this.b[i] = this.r[i];
+		}
+		
+		rotBack() {
+			for(var i=0; i<this.s*this.s; i++)
+				this.b[i] = this.t[i];
+		}
+		
+	}
+
+    function drawBlock(y, x, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(20*x, 20*y, 20, 20);
+    }
+	
+	function keyDown(event) {
+		if(event.key == "a" || event.key == "ArrowLeft"){
+			mainFigure.moveLeft();
+			if(mainField.collision(mainFigure))
+				mainFigure.moveRight();
+		} else if(event.key == "d" || event.key == "ArrowRight") {
+			mainFigure.moveRight();
+			if(mainField.collision(mainFigure))
+				mainFigure.moveLeft();
+		} else if(event.key == "s" || event.key == "ArrowDown") {
+			mainFigure.moveDown();
+			if(mainField.collision(mainFigure))
+				mainFigure.moveUp();
+		} else if(event.key =="w" || event.key == "ArrowUp") {
+			mainFigure.rot();
+			if(mainField.collision(mainFigure))
+				mainFigure.rotBack();
+		} else if(event.key == "e" || event.key == " ") {
+			if(gameState == 1) {
+				gameState = 2;
+			} else if(gameState == 2) {
+				gameState = 1;
+			}
+		};
+	}
+
+    function loadGame() {
+        var canvas = document.createElement("canvas");
+        canvas.width = 500;
+        canvas.height = 600;
+        ctx = canvas.getContext("2d");
+        document.body.insertBefore(canvas, document.body.childNodes[0]);
+
+        mainField = new Field(15, 25);
+        mainFigure = new Figure(5, 0, 0);
+        mainFigure.dropNew(mainField);
+
+        gameState = 1;
+        score = 0;
+		
+		document.addEventListener("keydown", keyDown);
+
+        setInterval(updateGame, 33);
+		
+    };
+	
+	function drawText(fnt, color, text, x, y) {
+		ctx.font = fnt;
+		ctx.fillStyle = color;
+		ctx.fillText(text, x, y);
+	}
+
+    function updateGame() {
+        if (gameState == 0) {
+			drawText("30px Arial", "#00FF00", "GAME OVER", 30, 100);
+			drawText("20px Arial", "#00FF00", "Press F5 to restart", 30, 130);
+			return 0;
+		};
+		
+		if(gameState == 2) {
+			drawText("30px Arial", "#0000FF", "PAUSE", 30, 100);
+			drawText("20px Arial", "#0000FF", "Press E or SPACE to continue", 30, 130);
+			return 0;
+		};
+			
+        pauseTicks--;
+        if (pauseTicks <= 0) {
+            pauseTicks = pauseCount;
+            mainFigure.moveDown();
+            if (mainField.collision(mainFigure)) {
+                mainFigure.moveUp();
+                mainField.plantFigure(mainFigure);
+                score += mainField.eraseLines();
+                mainFigure.dropNew(mainField);
+                if (mainField.collision(mainFigure))
+                    gameState = 0;
+            }
+        }
+		
+		if(speedUpTicks <= 0) {
+			speedUpTicks = speedUpCount;
+			pauseCount--;
+			if(pauseCount < 1)
+				pauseCount = 1;
+		};
+
+			ctx.clearRect(0, 0, 500, 600);
+			mainField.draw();
+			mainFigure.draw();
+		
+		drawText("25px Arial", "#233344", "SCORE: " + score + " SPEED: " + (10-pauseCount+1), 10, 30);
+		drawText("16px Arial", "#666666", "Controls: WASD or Arrow Keys, E/Space = Pause", 10, 580);
+		
+		speedUpTicks--;
+    }
+
+</script>
+</body>
+</html>
